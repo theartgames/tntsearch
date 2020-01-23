@@ -367,7 +367,12 @@ class TNTSearch
 
     public function setStemmer()
     {
-        //mhmm
+
+        $local = explode('.', $this->indexName)[1];
+
+        if (array_key_exists('additional_stemmers', $this->config) && array_key_exists($local, $this->config['additional_stemmers'])) {
+            dd($this->config['additional_stemmers'][$local]);
+        }
         $stemmer = $this->getValueFromInfoTable('stemmer');
         if ($stemmer) {
             $this->stemmer = new $stemmer;
