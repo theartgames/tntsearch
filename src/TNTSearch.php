@@ -367,6 +367,7 @@ class TNTSearch
 
     public function setStemmer()
     {
+        //mhmm
         $stemmer = $this->getValueFromInfoTable('stemmer');
         if ($stemmer) {
             $this->stemmer = new $stemmer;
