@@ -15,16 +15,17 @@ use TeamTNT\TNTSearch\Support\TokenizerInterface;
 class TNTSearch
 {
     public $config;
-    public $asYouType            = false;
-    public $maxDocs              = 500;
-    public $tokenizer            = null;
-    public $index                = null;
-    public $stemmer              = null;
-    public $fuzziness            = false;
-    public $fuzzy_prefix_length  = 2;
+    public $asYouType = false;
+    public $maxDocs = 500;
+    public $tokenizer = null;
+    public $index = null;
+    public $indexName = null;
+    public $stemmer = null;
+    public $fuzziness = false;
+    public $fuzzy_prefix_length = 2;
     public $fuzzy_max_expansions = 50;
-    public $fuzzy_distance       = 2;
-    protected $dbh               = null;
+    public $fuzzy_distance = 2;
+    protected $dbh = null;
 
     /**
      * @param array $config
@@ -33,8 +34,8 @@ class TNTSearch
      */
     public function loadConfig(array $config)
     {
-        $this->config            = $config;
-        $this->config['storage'] = rtrim($this->config['storage'], '/').'/';
+        $this->config = $config;
+        $this->config['storage'] = rtrim($this->config['storage'], '/') . '/';
     }
 
     public function __construct()
@@ -58,6 +59,7 @@ class TNTSearch
      */
     public function createIndex($indexName, $disableOutput = false)
     {
+        $this->indexName = $indexName;
         $indexer = new TNTIndexer;
         $indexer->loadConfig($this->config);
         $indexer->disableOutput = $disableOutput;
@@ -75,11 +77,12 @@ class TNTSearch
      */
     public function selectIndex($indexName)
     {
-        $pathToIndex = $this->config['storage'].$indexName;
+        $pathToIndex = $this->config['storage'] . $indexName;
         if (!file_exists($pathToIndex)) {
             throw new IndexNotFoundException("Index {$pathToIndex} does not exist", 1);
         }
-        $this->index = new PDO('sqlite:'.$pathToIndex);
+        $this->index = new PDO('sqlite:' . $pathToIndex);
+        $this->indexName = $indexName;
         $this->index->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $this->setStemmer();
         $this->setTokenizer();
@@ -87,39 +90,39 @@ class TNTSearch
 
     /**
      * @param string $phrase
-     * @param int    $numOfResults
+     * @param int $numOfResults
      *
      * @return array
      */
     public function search($phrase, $numOfResults = 100)
     {
         $startTimer = microtime(true);
-        $keywords   = $this->breakIntoTokens($phrase);
-        $keywords   = new Collection($keywords);
+        $keywords = $this->breakIntoTokens($phrase);
+        $keywords = new Collection($keywords);
 
         $keywords = $keywords->map(function ($keyword) {
             return $this->stemmer->stem($keyword);
         });
 
-        $tfWeight  = 1;
-        $dlWeight  = 0.5;
+        $tfWeight = 1;
+        $dlWeight = 0.5;
         $docScores = [];
-        $count     = $this->totalDocumentsInCollection();
+        $count = $this->totalDocumentsInCollection();
 
         foreach ($keywords as $index => $term) {
             $isLastKeyword = ($keywords->count() - 1) == $index;
-            $df            = $this->totalMatchingDocuments($term, $isLastKeyword);
-            $idf           = log($count / max(1, $df));
+            $df = $this->totalMatchingDocuments($term, $isLastKeyword);
+            $idf = log($count / max(1, $df));
             foreach ($this->getAllDocumentsForKeyword($term, false, $isLastKeyword) as $document) {
                 $docID = $document['doc_id'];
-                $tf    = $document['hit_count'];
-                $num   = ($tfWeight + 1) * $tf;
+                $tf = $document['hit_count'];
+                $num = ($tfWeight + 1) * $tf;
                 $denom = $tfWeight
-                     * ((1 - $dlWeight) + $dlWeight)
-                     + $tf;
-                $score             = $idf * ($num / $denom);
+                    * ((1 - $dlWeight) + $dlWeight)
+                    + $tf;
+                $score = $idf * ($num / $denom);
                 $docScores[$docID] = isset($docScores[$docID]) ?
-                $docScores[$docID] + $score : $score;
+                    $docScores[$docID] + $score : $score;
             }
         }
 
@@ -128,7 +131,7 @@ class TNTSearch
         $docs = new Collection($docScores);
 
         $totalHits = $docs->count();
-        $docs      = $docs->map(function ($doc, $key) {
+        $docs = $docs->map(function ($doc, $key) {
             return $key;
         })->take($numOfResults);
         $stopTimer = microtime(true);
@@ -137,29 +140,29 @@ class TNTSearch
             return $this->filesystemMapIdsToPaths($docs)->toArray();
         }
         return [
-            'ids'            => array_keys($docs->toArray()),
-            'hits'           => $totalHits,
-            'execution_time' => round($stopTimer - $startTimer, 7) * 1000 ." ms"
+            'ids' => array_keys($docs->toArray()),
+            'hits' => $totalHits,
+            'execution_time' => round($stopTimer - $startTimer, 7) * 1000 . " ms"
         ];
     }
 
     /**
      * @param string $phrase
-     * @param int    $numOfResults
+     * @param int $numOfResults
      *
      * @return array
      */
     public function searchBoolean($phrase, $numOfResults = 100)
     {
-        $stack      = [];
+        $stack = [];
         $startTimer = microtime(true);
 
         $expression = new Expression;
-        $postfix    = $expression->toPostfix("|".$phrase);
+        $postfix = $expression->toPostfix("|" . $phrase);
 
         foreach ($postfix as $token) {
             if ($token == '&') {
-                $left  = array_pop($stack);
+                $left = array_pop($stack);
                 $right = array_pop($stack);
                 if (is_string($left)) {
                     $left = $this->getAllDocumentsForKeyword($this->stemmer->stem($left), true)
@@ -178,40 +181,40 @@ class TNTSearch
                 }
                 $stack[] = array_values(array_intersect($left, $right));
             } else
-            if ($token == '|') {
-                $left  = array_pop($stack);
-                $right = array_pop($stack);
+                if ($token == '|') {
+                    $left = array_pop($stack);
+                    $right = array_pop($stack);
 
-                if (is_string($left)) {
-                    $left = $this->getAllDocumentsForKeyword($this->stemmer->stem($left), true)
-                        ->pluck('doc_id');
-                }
-                if (is_string($right)) {
-                    $right = $this->getAllDocumentsForKeyword($this->stemmer->stem($right), true)
-                        ->pluck('doc_id');
-                }
-                if (is_null($left)) {
-                    $left = [];
-                }
+                    if (is_string($left)) {
+                        $left = $this->getAllDocumentsForKeyword($this->stemmer->stem($left), true)
+                            ->pluck('doc_id');
+                    }
+                    if (is_string($right)) {
+                        $right = $this->getAllDocumentsForKeyword($this->stemmer->stem($right), true)
+                            ->pluck('doc_id');
+                    }
+                    if (is_null($left)) {
+                        $left = [];
+                    }
 
-                if (is_null($right)) {
-                    $right = [];
-                }
-                $stack[] = array_unique(array_merge($left, $right));
-            } else
-            if ($token == '~') {
-                $left = array_pop($stack);
-                if (is_string($left)) {
-                    $left = $this->getAllDocumentsForWhereKeywordNot($this->stemmer->stem($left), true)
-                        ->pluck('doc_id');
-                }
-                if (is_null($left)) {
-                    $left = [];
-                }
-                $stack[] = $left;
-            } else {
-                $stack[] = $token;
-            }
+                    if (is_null($right)) {
+                        $right = [];
+                    }
+                    $stack[] = array_unique(array_merge($left, $right));
+                } else
+                    if ($token == '~') {
+                        $left = array_pop($stack);
+                        if (is_string($left)) {
+                            $left = $this->getAllDocumentsForWhereKeywordNot($this->stemmer->stem($left), true)
+                                ->pluck('doc_id');
+                        }
+                        if (is_null($left)) {
+                            $left = [];
+                        }
+                        $stack[] = $left;
+                    } else {
+                        $stack[] = $token;
+                    }
         }
         if (count($stack)) {
             $docs = new Collection($stack[0]);
@@ -228,9 +231,9 @@ class TNTSearch
         }
 
         return [
-            'ids'            => $docs->toArray(),
-            'hits'           => $docs->count(),
-            'execution_time' => round($stopTimer - $startTimer, 7) * 1000 ." ms"
+            'ids' => $docs->toArray(),
+            'hits' => $docs->count(),
+            'execution_time' => round($stopTimer - $startTimer, 7) * 1000 . " ms"
         ];
     }
 
@@ -302,12 +305,12 @@ class TNTSearch
     public function getWordlistByKeyword($keyword, $isLastWord = false)
     {
         $searchWordlist = "SELECT * FROM wordlist WHERE term like :keyword LIMIT 1";
-        $stmtWord       = $this->index->prepare($searchWordlist);
+        $stmtWord = $this->index->prepare($searchWordlist);
 
         if ($this->asYouType && $isLastWord) {
             $searchWordlist = "SELECT * FROM wordlist WHERE term like :keyword ORDER BY length(term) ASC, num_hits DESC LIMIT 1";
-            $stmtWord       = $this->index->prepare($searchWordlist);
-            $stmtWord->bindValue(':keyword', mb_strtolower($keyword)."%");
+            $stmtWord = $this->index->prepare($searchWordlist);
+            $stmtWord->bindValue(':keyword', mb_strtolower($keyword) . "%");
         } else {
             $stmtWord->bindValue(':keyword', mb_strtolower($keyword));
         }
@@ -327,10 +330,10 @@ class TNTSearch
      */
     public function fuzzySearch($keyword)
     {
-        $prefix         = substr($keyword, 0, $this->fuzzy_prefix_length);
+        $prefix = substr($keyword, 0, $this->fuzzy_prefix_length);
         $searchWordlist = "SELECT * FROM wordlist WHERE term like :keyword ORDER BY num_hits DESC LIMIT {$this->fuzzy_max_expansions}";
-        $stmtWord       = $this->index->prepare($searchWordlist);
-        $stmtWord->bindValue(':keyword', mb_strtolower($prefix)."%");
+        $stmtWord = $this->index->prepare($searchWordlist);
+        $stmtWord->bindValue(':keyword', mb_strtolower($prefix) . "%");
         $stmtWord->execute();
         $matches = $stmtWord->fetchAll(PDO::FETCH_ASSOC);
 
@@ -339,16 +342,16 @@ class TNTSearch
             $distance = levenshtein($match['term'], $keyword);
             if ($distance <= $this->fuzzy_distance) {
                 $match['distance'] = $distance;
-                $resultSet[]       = $match;
+                $resultSet[] = $match;
             }
         }
 
         // Sort the data by distance, and than by num_hits
         $distance = [];
-        $hits     = [];
+        $hits = [];
         foreach ($resultSet as $key => $row) {
             $distance[$key] = $row['distance'];
-            $hits[$key]     = $row['num_hits'];
+            $hits[$key] = $row['num_hits'];
         }
         array_multisort($distance, SORT_ASC, $hits, SORT_DESC, $resultSet);
 
@@ -370,14 +373,15 @@ class TNTSearch
 
         $local = explode('.', $this->indexName)[1];
 
-        if (array_key_exists('additional_stemmers', $this->config) && array_key_exists($local, $this->config['additional_stemmers'])) {
-            dd($this->config['additional_stemmers'][$local]);
-        }
+
         $stemmer = $this->getValueFromInfoTable('stemmer');
+
         if ($stemmer) {
             $this->stemmer = new $stemmer;
+        } elseif (array_key_exists('additional_stemmers', $this->config) && array_key_exists($local, $this->config['additional_stemmers'])) {
+            $this->stemmer = new $this->config['additional_stemmers'][$local];
         } else {
-            $this->stemmer = isset($this->config['stemmer']) ? new $this->config['stemmer'] : new PorterStemmer;
+            $this->stemmer = new PorterStemmer;
         }
     }
 
@@ -402,7 +406,7 @@ class TNTSearch
     public function getValueFromInfoTable($value)
     {
         $query = "SELECT * FROM info WHERE key = '$value'";
-        $docs  = $this->index->query($query);
+        $docs = $this->index->query($query);
 
         if ($ret = $docs->fetch(PDO::FETCH_ASSOC)) {
             return $ret['value'];
@@ -413,8 +417,8 @@ class TNTSearch
 
     public function filesystemMapIdsToPaths($docs)
     {
-        $query = "SELECT * FROM filemap WHERE id in (".$docs->implode(', ').");";
-        $res   = $this->index->query($query)->fetchAll(PDO::FETCH_ASSOC);
+        $query = "SELECT * FROM filemap WHERE id in (" . $docs->implode(', ') . ");";
+        $res = $this->index->query($query)->fetchAll(PDO::FETCH_ASSOC);
 
         return $docs->map(function ($key) use ($res) {
             $index = array_search($key, array_column($res, 'id'));
@@ -424,7 +428,7 @@ class TNTSearch
 
     public function info($str)
     {
-        echo $str."\n";
+        echo $str . "\n";
     }
 
     public function breakIntoTokens($text)
@@ -436,7 +440,7 @@ class TNTSearch
      * @param        $text
      * @param        $needle
      * @param string $tag
-     * @param array  $options
+     * @param array $options
      *
      * @return string
      */
@@ -457,7 +461,7 @@ class TNTSearch
      */
     public function getIndex()
     {
-        $indexer           = new TNTIndexer;
+        $indexer = new TNTIndexer;
         $indexer->inMemory = false;
         $indexer->setIndex($this->index);
         $indexer->setStemmer($this->stemmer);
@@ -474,11 +478,11 @@ class TNTSearch
     private function getAllDocumentsForFuzzyKeyword($words, $noLimit)
     {
         $binding_params = implode(',', array_fill(0, count($words), '?'));
-        $query          = "SELECT * FROM doclist WHERE term_id in ($binding_params) ORDER BY CASE term_id";
-        $order_counter  = 1;
+        $query = "SELECT * FROM doclist WHERE term_id in ($binding_params) ORDER BY CASE term_id";
+        $order_counter = 1;
 
         foreach ($words as $word) {
-            $query .= " WHEN ".$word['id']." THEN ".$order_counter++;
+            $query .= " WHEN " . $word['id'] . " THEN " . $order_counter++;
         }
 
         $query .= " END";
